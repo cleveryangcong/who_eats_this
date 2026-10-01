@@ -47,7 +47,7 @@
 <main>
   <section id="start">
     <h1>Who eats this? 🍽️</h1>
-    <p>Two kinds of questions: you see only the food and guess <b>who</b> eats it, or you see the person and guess <b>what</b> is on the plate. Your first run counts for the ranking.</p>
+    <p>How well do you know what your classmates eat and drink? Sometimes you guess <b>who</b>, sometimes <b>what</b>. Your first run counts for the ranking.</p>
     <input id="name" placeholder="Your name" maxlength="24" autocomplete="given-name">
     <button class="primary" id="go">Start</button>
     <p class="note" id="startNote"></p>
@@ -85,7 +85,7 @@
 const $ = id => document.getElementById(id);
 const cfg = window.CONFIG || {};
 const hasBoard = Boolean(cfg.supabaseUrl && cfg.supabaseAnonKey);
-const PLAYED_KEY = "who_eats_this_played_v2";
+const PLAYED_KEY = "who_eats_this_played_v3";
 const OPTION_COUNT = 4;
 
 let people = [], rounds = [], decoyFoods = [], index = 0, score = 0, player = "";
@@ -149,7 +149,7 @@ async function loadBoard() {
 
 // "who" rounds: mostly people who really appear in the game, so the usual suspects are always an option.
 function nameOptions(answer) {
-  const featured = [...new Set(rounds.map(r => r.person))].filter(p => p !== answer);
+  const featured = [...new Set(rounds.filter(r => r.kind === "who").map(r => r.answer))].filter(p => p !== answer);
   const others = people.filter(p => p !== answer && !featured.includes(p));
   const wrong = [...shuffle(featured).slice(0, 2), ...shuffle(others)].slice(0, OPTION_COUNT - 1);
   return shuffle([answer, ...wrong]);
@@ -157,21 +157,21 @@ function nameOptions(answer) {
 
 // "what" rounds: other real meals from the game plus invented ones, never two of the same kind.
 function foodOptions(round) {
-  const real = rounds.filter(r => r.group !== round.group).map(r => r.food);
+  if (round.decoys.length) return shuffle([round.answer, ...round.decoys]);
+  const real = rounds.filter(r => r.kind === "what" && !r.decoys.length && r.group !== round.group).map(r => r.answer);
   const wrong = shuffle([...new Set(real)]).slice(0, 2);
   wrong.push(...shuffle(decoyFoods).slice(0, OPTION_COUNT - 1 - wrong.length));
-  return shuffle([round.food, ...wrong]);
+  return shuffle([round.answer, ...wrong]);
 }
 
 function nextRound() {
   if (index >= rounds.length) return finish();
   const round = rounds[index];
   const isWho = round.kind === "who";
-  const answer = isWho ? round.person : round.food;
-  const firstName = round.person.split(" ")[0];
+  const answer = round.answer;
   $("progress").textContent = `Question ${index + 1} of ${rounds.length}`;
   $("running").textContent = `${score} right`;
-  $("question").textContent = isWho ? "Whose food is this?" : `What is ${firstName} eating here?`;
+  $("question").textContent = round.question;
   $("options").replaceChildren();
   const photo = $("photo");
   photo.onload = () => { shownAt = Date.now(); };
@@ -193,8 +193,8 @@ function pick(round, correct) {
   const verdict = $("verdict");
   verdict.textContent = correct ? "✓ Right!" : "✗ Wrong";
   verdict.className = "verdict " + (correct ? "right" : "wrong");
-  $("solution").textContent = `${round.person}: ${round.food.charAt(0).toLowerCase()}${round.food.slice(1)}.`;
-  $("revealPhoto").src = `photos/reveal/${round.file}`;
+  $("solution").textContent = round.solution;
+  $("revealPhoto").src = `photos/reveal/${round.reveal}`;
   $("next").textContent = index >= rounds.length ? "See my score" : "Next";
   show("reveal");
 }
