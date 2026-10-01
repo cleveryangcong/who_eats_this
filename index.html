@@ -15,8 +15,6 @@
   h1 { font-size: 30px; margin: 12px 0 4px; letter-spacing: -0.5px; }
   h2 { font-size: 17px; margin: 28px 0 10px; }
   p { color: var(--muted); line-height: 1.45; margin: 6px 0 16px; }
-  input { width: 100%; font-size: 17px; padding: 13px 14px; border: 1.5px solid var(--line);
-          border-radius: 12px; background: var(--card); color: var(--ink); }
   button { width: 100%; font-size: 17px; font-weight: 600; padding: 14px; border-radius: 12px;
            border: 1.5px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; margin-top: 12px; }
@@ -34,12 +32,6 @@
   .verdict.wrong { color: var(--bad); }
   #solution { color: var(--ink); font-size: 17px; margin: 4px 0 12px; }
   .score { font-size: 54px; font-weight: 800; margin: 8px 0 0; }
-  table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 12px; overflow: hidden; }
-  td { padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 15px; }
-  tr:last-child td { border-bottom: 0; }
-  td.rank { width: 34px; color: var(--muted); }
-  td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  tr.me td { font-weight: 700; }
   .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
 </style>
 </head>
@@ -47,8 +39,7 @@
 <main>
   <section id="start">
     <h1>Who eats this? 🍽️</h1>
-    <p>How well do you know what your classmates eat and drink? Sometimes you guess <b>who</b>, sometimes <b>what</b>. Your first run counts for the ranking.</p>
-    <input id="name" placeholder="Your name" maxlength="24" autocomplete="given-name">
+    <p>How well do you know what your classmates eat and drink? Sometimes you guess <b>who</b>, sometimes <b>what</b>.</p>
     <button class="primary" id="go">Start</button>
     <p class="note" id="startNote"></p>
   </section>
@@ -70,31 +61,16 @@
   <section id="end" class="hidden">
     <h1 id="endTitle"></h1>
     <div class="score" id="endScore"></div>
-    <p id="endNote"></p>
-    <button class="primary" id="again">Play again (practice)</button>
+    <button class="primary" id="again">Play again</button>
   </section>
 
-  <section id="board" class="hidden">
-    <h2>Ranking</h2>
-    <table id="rows"></table>
-  </section>
 </main>
 
-<script src="config.js"></script>
 <script>
 const $ = id => document.getElementById(id);
-const cfg = window.CONFIG || {};
-const hasBoard = Boolean(cfg.supabaseUrl && cfg.supabaseAnonKey);
-const PLAYED_KEY = "who_eats_this_played_v3";
 const OPTION_COUNT = 4;
 
-let people = [], rounds = [], decoyFoods = [], index = 0, score = 0, player = "";
-let thinkingMs = 0, shownAt = 0;
-
-const store = {
-  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
-};
+let people = [], rounds = [], decoyFoods = [], index = 0, score = 0;
 
 function shuffle(list) {
   const a = [...list];
@@ -108,43 +84,6 @@ function shuffle(list) {
 function show(id) {
   for (const s of ["start", "round", "reveal", "end"]) $(s).classList.toggle("hidden", s !== id);
   window.scrollTo(0, 0);
-}
-
-async function api(path, options = {}) {
-  const res = await fetch(`${cfg.supabaseUrl}/rest/v1/${path}`, {
-    ...options,
-    headers: {
-      apikey: cfg.supabaseAnonKey,
-      Authorization: `Bearer ${cfg.supabaseAnonKey}`,
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.status === 204 || res.status === 201 ? null : res.json();
-}
-
-async function loadBoard() {
-  if (!hasBoard) return;
-  try {
-    const rows = await api("scores?select=name,score,total,seconds&order=score.desc,seconds.asc&limit=50");
-    const table = $("rows");
-    table.replaceChildren();
-    rows.forEach((r, i) => {
-      const tr = document.createElement("tr");
-      if (r.name === player) tr.className = "me";
-      for (const [cls, text] of [["rank", i + 1], ["", r.name], ["num", `${r.score}/${r.total}`], ["num", `${r.seconds}s`]]) {
-        const td = document.createElement("td");
-        td.className = cls;
-        td.textContent = text;
-        tr.append(td);
-      }
-      table.append(tr);
-    });
-    $("board").classList.toggle("hidden", rows.length === 0);
-  } catch (e) {
-    console.error("Ranking could not be loaded", e);
-  }
 }
 
 // "who" rounds: mostly people who really appear in the game, so the usual suspects are always an option.
@@ -173,10 +112,7 @@ function nextRound() {
   $("running").textContent = `${score} right`;
   $("question").textContent = round.question;
   $("options").replaceChildren();
-  const photo = $("photo");
-  photo.onload = () => { shownAt = Date.now(); };
-  photo.src = `photos/question/${round.file}`;
-  shownAt = Date.now();
+  $("photo").src = `photos/question/${round.file}`;
   $("options").replaceChildren(...(isWho ? nameOptions(answer) : foodOptions(round)).map(text => {
     const b = document.createElement("button");
     b.textContent = text;
@@ -187,7 +123,6 @@ function nextRound() {
 }
 
 function pick(round, correct) {
-  thinkingMs += Date.now() - shownAt;
   if (correct) score++;
   index++;
   const verdict = $("verdict");
@@ -199,34 +134,15 @@ function pick(round, correct) {
   show("reveal");
 }
 
-async function finish() {
-  const seconds = Math.round(thinkingMs / 1000);
-  const firstRun = !store.get(PLAYED_KEY);
+function finish() {
   $("endTitle").textContent = score === rounds.length ? "Perfect!" : score >= rounds.length / 2 ? "Not bad" : "Do you even know us?";
   $("endScore").textContent = `${score} / ${rounds.length}`;
-  $("endNote").textContent = `${seconds} seconds of thinking.` + (firstRun ? "" : " Practice run, not counted in the ranking.");
   show("end");
-  if (firstRun) {
-    store.set(PLAYED_KEY, "1");
-    if (hasBoard) {
-      try {
-        await api("scores", { method: "POST", headers: { Prefer: "return=minimal" },
-          body: JSON.stringify({ name: player, score, total: rounds.length, seconds }) });
-      } catch (e) {
-        $("endNote").textContent += " Your score could not be saved to the ranking.";
-        console.error(e);
-      }
-    }
-  }
-  loadBoard();
 }
 
 function start() {
-  player = $("name").value.trim();
-  if (!player) { $("name").focus(); return; }
   rounds = shuffle(rounds);
-  index = 0; score = 0; thinkingMs = 0;
-  $("board").classList.add("hidden");
+  index = 0; score = 0;
   nextRound();
 }
 
@@ -241,14 +157,10 @@ async function init() {
   if (rounds.length === 0) {
     $("go").disabled = true;
     $("startNote").textContent = "No questions yet.";
-  } else if (store.get(PLAYED_KEY)) {
-    $("startNote").textContent = "You already played on this device. This run is practice only.";
   }
   $("go").onclick = start;
   $("next").onclick = nextRound;
   $("again").onclick = () => show("start");
-  $("name").addEventListener("keydown", e => { if (e.key === "Enter") start(); });
-  loadBoard();
 }
 init();
 </script>
