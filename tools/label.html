@@ -43,7 +43,6 @@ async function init() {
     const card = document.createElement("div");
     const img = document.createElement("img");
     img.src = `/originals/${file}`;
-    img.onerror = () => { img.onerror = null; img.src = `/photos/${file}`; };
     const sel = document.createElement("select");
     sel.innerHTML = `<option value="">– choose –</option><option value="${SKIP}">Leave out of the game</option>` +
       people.map(p => `<option>${p}</option>`).join("");

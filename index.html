@@ -23,11 +23,16 @@
   button:disabled { cursor: default; }
   .hidden { display: none; }
   .top { display: flex; justify-content: space-between; color: var(--muted); font-size: 14px; margin-bottom: 8px; }
-  .photo { width: 100%; height: 52vh; max-height: 520px; object-fit: contain; background: #16130f;
+  .photo { width: 100%; height: 48vh; max-height: 520px; object-fit: contain; background: #16130f;
            border-radius: 14px; display: block; }
   .options { display: grid; gap: 10px; margin-top: 14px; }
   .options button.right { background: var(--good); border-color: var(--good); color: #fff; }
   .options button.wrong { background: var(--bad); border-color: var(--bad); color: #fff; }
+  #question { margin: 4px 0 10px; font-size: 19px; }
+  .verdict { font-size: 26px; font-weight: 800; margin-top: 8px; }
+  .verdict.right { color: var(--good); }
+  .verdict.wrong { color: var(--bad); }
+  #solution { color: var(--ink); font-size: 17px; margin: 4px 0 12px; }
   .score { font-size: 54px; font-weight: 800; margin: 8px 0 0; }
   table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 12px; overflow: hidden; }
   td { padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 15px; }
@@ -42,7 +47,7 @@
 <main>
   <section id="start">
     <h1>Who eats this? 🍽️</h1>
-    <p>You see a meal, the face is blurred. Guess which classmate is eating or cooking it. Your first run counts for the ranking.</p>
+    <p>Two kinds of questions: you see only the food and guess <b>who</b> eats it, or you see the person and guess <b>what</b> is on the plate. Your first run counts for the ranking.</p>
     <input id="name" placeholder="Your name" maxlength="24" autocomplete="given-name">
     <button class="primary" id="go">Start</button>
     <p class="note" id="startNote"></p>
@@ -50,8 +55,16 @@
 
   <section id="round" class="hidden">
     <div class="top"><span id="progress"></span><span id="running"></span></div>
-    <img class="photo" id="photo" alt="A meal with the person's face blurred">
+    <h2 id="question"></h2>
+    <img class="photo" id="photo" alt="">
     <div class="options" id="options"></div>
+  </section>
+
+  <section id="reveal" class="hidden">
+    <div class="verdict" id="verdict"></div>
+    <p id="solution"></p>
+    <img class="photo" id="revealPhoto" alt="">
+    <button class="primary" id="next">Next</button>
   </section>
 
   <section id="end" class="hidden">
@@ -72,10 +85,11 @@
 const $ = id => document.getElementById(id);
 const cfg = window.CONFIG || {};
 const hasBoard = Boolean(cfg.supabaseUrl && cfg.supabaseAnonKey);
-const PLAYED_KEY = "who_eats_this_played";
+const PLAYED_KEY = "who_eats_this_played_v2";
 const OPTION_COUNT = 4;
 
-let people = [], rounds = [], index = 0, score = 0, startedAt = 0, player = "";
+let people = [], rounds = [], decoyFoods = [], index = 0, score = 0, player = "";
+let thinkingMs = 0, shownAt = 0;
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -92,7 +106,8 @@ function shuffle(list) {
 }
 
 function show(id) {
-  for (const s of ["start", "round", "end"]) $(s).classList.toggle("hidden", s !== id);
+  for (const s of ["start", "round", "reveal", "end"]) $(s).classList.toggle("hidden", s !== id);
+  window.scrollTo(0, 0);
 }
 
 async function api(path, options = {}) {
@@ -132,37 +147,64 @@ async function loadBoard() {
   }
 }
 
-function nextRound() {
-  if (index >= rounds.length) return finish();
-  const { file, answer } = rounds[index];
-  $("progress").textContent = `Photo ${index + 1} of ${rounds.length}`;
-  $("running").textContent = `${score} right`;
-  $("photo").src = `photos/${file}`;
-  const options = shuffle([answer, ...shuffle(people.filter(p => p !== answer)).slice(0, OPTION_COUNT - 1)]);
-  $("options").replaceChildren(...options.map(name => {
-    const b = document.createElement("button");
-    b.textContent = name;
-    b.onclick = () => pick(b, name === answer, answer);
-    return b;
-  }));
+// "who" rounds: mostly people who really appear in the game, so the usual suspects are always an option.
+function nameOptions(answer) {
+  const featured = [...new Set(rounds.map(r => r.person))].filter(p => p !== answer);
+  const others = people.filter(p => p !== answer && !featured.includes(p));
+  const wrong = [...shuffle(featured).slice(0, 2), ...shuffle(others)].slice(0, OPTION_COUNT - 1);
+  return shuffle([answer, ...wrong]);
 }
 
-function pick(button, correct, answer) {
-  for (const b of $("options").children) {
-    b.disabled = true;
-    if (b.textContent === answer) b.classList.add("right");
-  }
-  if (correct) score++; else button.classList.add("wrong");
+// "what" rounds: other real meals from the game plus invented ones, never two of the same kind.
+function foodOptions(round) {
+  const real = rounds.filter(r => r.group !== round.group).map(r => r.food);
+  const wrong = shuffle([...new Set(real)]).slice(0, 2);
+  wrong.push(...shuffle(decoyFoods).slice(0, OPTION_COUNT - 1 - wrong.length));
+  return shuffle([round.food, ...wrong]);
+}
+
+function nextRound() {
+  if (index >= rounds.length) return finish();
+  const round = rounds[index];
+  const isWho = round.kind === "who";
+  const answer = isWho ? round.person : round.food;
+  const firstName = round.person.split(" ")[0];
+  $("progress").textContent = `Question ${index + 1} of ${rounds.length}`;
+  $("running").textContent = `${score} right`;
+  $("question").textContent = isWho ? "Whose food is this?" : `What is ${firstName} eating here?`;
+  $("options").replaceChildren();
+  const photo = $("photo");
+  photo.onload = () => { shownAt = Date.now(); };
+  photo.src = `photos/question/${round.file}`;
+  shownAt = Date.now();
+  $("options").replaceChildren(...(isWho ? nameOptions(answer) : foodOptions(round)).map(text => {
+    const b = document.createElement("button");
+    b.textContent = text;
+    b.onclick = () => pick(round, text === answer);
+    return b;
+  }));
+  show("round");
+}
+
+function pick(round, correct) {
+  thinkingMs += Date.now() - shownAt;
+  if (correct) score++;
   index++;
-  setTimeout(nextRound, correct ? 700 : 1600);
+  const verdict = $("verdict");
+  verdict.textContent = correct ? "✓ Right!" : "✗ Wrong";
+  verdict.className = "verdict " + (correct ? "right" : "wrong");
+  $("solution").textContent = `${round.person}: ${round.food.charAt(0).toLowerCase()}${round.food.slice(1)}.`;
+  $("revealPhoto").src = `photos/reveal/${round.file}`;
+  $("next").textContent = index >= rounds.length ? "See my score" : "Next";
+  show("reveal");
 }
 
 async function finish() {
-  const seconds = Math.round((Date.now() - startedAt) / 1000);
+  const seconds = Math.round(thinkingMs / 1000);
   const firstRun = !store.get(PLAYED_KEY);
   $("endTitle").textContent = score === rounds.length ? "Perfect!" : score >= rounds.length / 2 ? "Not bad" : "Do you even know us?";
   $("endScore").textContent = `${score} / ${rounds.length}`;
-  $("endNote").textContent = `${seconds} seconds.` + (firstRun ? "" : " Practice run, not counted in the ranking.");
+  $("endNote").textContent = `${seconds} seconds of thinking.` + (firstRun ? "" : " Practice run, not counted in the ranking.");
   show("end");
   if (firstRun) {
     store.set(PLAYED_KEY, "1");
@@ -183,28 +225,27 @@ function start() {
   player = $("name").value.trim();
   if (!player) { $("name").focus(); return; }
   rounds = shuffle(rounds);
-  index = 0; score = 0; startedAt = Date.now();
-  show("round");
+  index = 0; score = 0; thinkingMs = 0;
   $("board").classList.add("hidden");
   nextRound();
 }
 
 async function init() {
-  const [p, answers] = await Promise.all([
+  const [p, data] = await Promise.all([
     fetch("data/people.json").then(r => r.json()),
-    fetch("data/answers.json").then(r => r.json()),
+    fetch("data/rounds.json").then(r => r.json()),
   ]);
   people = p;
-  rounds = Object.entries(answers)
-    .filter(([, name]) => people.includes(name))
-    .map(([file, answer]) => ({ file, answer }));
+  rounds = data.rounds;
+  decoyFoods = data.decoyFoods;
   if (rounds.length === 0) {
     $("go").disabled = true;
-    $("startNote").textContent = "No photos are matched to a person yet.";
+    $("startNote").textContent = "No questions yet.";
   } else if (store.get(PLAYED_KEY)) {
     $("startNote").textContent = "You already played on this device. This run is practice only.";
   }
   $("go").onclick = start;
+  $("next").onclick = nextRound;
   $("again").onclick = () => show("start");
   $("name").addEventListener("keydown", e => { if (e.key === "Enter") start(); });
   loadBoard();
