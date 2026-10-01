@@ -96,6 +96,9 @@ ROUNDS = [
     dict(file="burger_king.jpg", kind="who", make="blur",
          question="Who is ordering something at Burger King?", solution="It is {person}.",
          boxes=[(0.41, 0.34, 0.53, 0.43)]),
+    dict(file="whiteboard_guy.jpg", kind="who", make="blur",
+         question="Who is this little guy?", solution="It is {person}.",
+         boxes=[(0.45, 0.18, 0.98, 0.345)]),
 ]
 
 # Wrong food answers that nobody in the game actually ate.

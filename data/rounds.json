@@ -281,6 +281,16 @@
    "solution": "It is Sarah Götz.",
    "group": "burger_king.jpg",
    "decoys": []
+  },
+  {
+   "file": "whiteboard_guy.jpg",
+   "reveal": "whiteboard_guy.jpg",
+   "kind": "who",
+   "question": "Who is this little guy?",
+   "answer": "Kacper Chłodny",
+   "solution": "It is Kacper Chłodny.",
+   "group": "whiteboard_guy.jpg",
+   "decoys": []
   }
  ],
  "decoyFoods": [
