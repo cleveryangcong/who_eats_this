@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Label photos</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; margin: 24px; background: #f6f4ef; color: #1d1d1b; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  #status { color: #666; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+  .card { background: #fff; border-radius: 10px; padding: 10px; border: 2px solid transparent; }
+  .card.done { border-color: #3a9d5d; }
+  .card.skipped { opacity: .55; }
+  img { width: 100%; height: 300px; object-fit: contain; background: #111; border-radius: 6px; }
+  select { width: 100%; margin-top: 8px; font-size: 15px; padding: 6px; }
+</style>
+</head>
+<body>
+<h1>Who is eating or cooking this?</h1>
+<div id="status"></div>
+<div class="grid" id="grid"></div>
+<script>
+const SKIP = "skip";
+let answers = {};
+
+async function save() {
+  await fetch("/save", { method: "POST", body: JSON.stringify(answers) });
+  const done = Object.values(answers).filter(v => v && v !== SKIP).length;
+  const open = Object.values(answers).filter(v => !v).length;
+  document.getElementById("status").textContent =
+    `${done} in the game, ${open} still open. Saved to data/answers.json on every change.`;
+}
+
+async function init() {
+  const [people, a] = await Promise.all([
+    fetch("/data/people.json").then(r => r.json()),
+    fetch("/data/answers.json").then(r => r.json()),
+  ]);
+  answers = a;
+  const grid = document.getElementById("grid");
+  for (const file of Object.keys(answers).sort()) {
+    const card = document.createElement("div");
+    const img = document.createElement("img");
+    img.src = `/originals/${file}`;
+    img.onerror = () => { img.onerror = null; img.src = `/photos/${file}`; };
+    const sel = document.createElement("select");
+    sel.innerHTML = `<option value="">– choose –</option><option value="${SKIP}">Leave out of the game</option>` +
+      people.map(p => `<option>${p}</option>`).join("");
+    sel.value = answers[file];
+    const paint = () => { card.className = "card" + (sel.value === SKIP ? " skipped" : sel.value ? " done" : ""); };
+    sel.onchange = () => { answers[file] = sel.value; paint(); save(); };
+    paint();
+    card.append(img, sel);
+    grid.append(card);
+  }
+  save();
+}
+init();
+</script>
+</body>
+</html>

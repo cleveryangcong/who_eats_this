@@ -1,0 +1,4 @@
+originals/
+.DS_Store
+__pycache__/
+tools/faces

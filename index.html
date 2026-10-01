@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Who eats this?</title>
+<style>
+  :root { --bg: #f6f1e7; --ink: #23201b; --muted: #7a7266; --card: #fffdf8; --line: #e3dbcb;
+          --accent: #e4572e; --good: #2e9d5b; --bad: #c8372d; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font-family: -apple-system, system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 480px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 30px; margin: 12px 0 4px; letter-spacing: -0.5px; }
+  h2 { font-size: 17px; margin: 28px 0 10px; }
+  p { color: var(--muted); line-height: 1.45; margin: 6px 0 16px; }
+  input { width: 100%; font-size: 17px; padding: 13px 14px; border: 1.5px solid var(--line);
+          border-radius: 12px; background: var(--card); color: var(--ink); }
+  button { width: 100%; font-size: 17px; font-weight: 600; padding: 14px; border-radius: 12px;
+           border: 1.5px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; margin-top: 12px; }
+  button:disabled { cursor: default; }
+  .hidden { display: none; }
+  .top { display: flex; justify-content: space-between; color: var(--muted); font-size: 14px; margin-bottom: 8px; }
+  .photo { width: 100%; height: 52vh; max-height: 520px; object-fit: contain; background: #16130f;
+           border-radius: 14px; display: block; }
+  .options { display: grid; gap: 10px; margin-top: 14px; }
+  .options button.right { background: var(--good); border-color: var(--good); color: #fff; }
+  .options button.wrong { background: var(--bad); border-color: var(--bad); color: #fff; }
+  .score { font-size: 54px; font-weight: 800; margin: 8px 0 0; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 12px; overflow: hidden; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 15px; }
+  tr:last-child td { border-bottom: 0; }
+  td.rank { width: 34px; color: var(--muted); }
+  td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  tr.me td { font-weight: 700; }
+  .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <section id="start">
+    <h1>Who eats this? 🍽️</h1>
+    <p>You see a meal, the face is blurred. Guess which classmate is eating or cooking it. Your first run counts for the ranking.</p>
+    <input id="name" placeholder="Your name" maxlength="24" autocomplete="given-name">
+    <button class="primary" id="go">Start</button>
+    <p class="note" id="startNote"></p>
+  </section>
+
+  <section id="round" class="hidden">
+    <div class="top"><span id="progress"></span><span id="running"></span></div>
+    <img class="photo" id="photo" alt="A meal with the person's face blurred">
+    <div class="options" id="options"></div>
+  </section>
+
+  <section id="end" class="hidden">
+    <h1 id="endTitle"></h1>
+    <div class="score" id="endScore"></div>
+    <p id="endNote"></p>
+    <button class="primary" id="again">Play again (practice)</button>
+  </section>
+
+  <section id="board" class="hidden">
+    <h2>Ranking</h2>
+    <table id="rows"></table>
+  </section>
+</main>
+
+<script src="config.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const cfg = window.CONFIG || {};
+const hasBoard = Boolean(cfg.supabaseUrl && cfg.supabaseAnonKey);
+const PLAYED_KEY = "who_eats_this_played";
+const OPTION_COUNT = 4;
+
+let people = [], rounds = [], index = 0, score = 0, startedAt = 0, player = "";
+
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+
+function shuffle(list) {
+  const a = [...list];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function show(id) {
+  for (const s of ["start", "round", "end"]) $(s).classList.toggle("hidden", s !== id);
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(`${cfg.supabaseUrl}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      apikey: cfg.supabaseAnonKey,
+      Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.status === 204 || res.status === 201 ? null : res.json();
+}
+
+async function loadBoard() {
+  if (!hasBoard) return;
+  try {
+    const rows = await api("scores?select=name,score,total,seconds&order=score.desc,seconds.asc&limit=50");
+    const table = $("rows");
+    table.replaceChildren();
+    rows.forEach((r, i) => {
+      const tr = document.createElement("tr");
+      if (r.name === player) tr.className = "me";
+      for (const [cls, text] of [["rank", i + 1], ["", r.name], ["num", `${r.score}/${r.total}`], ["num", `${r.seconds}s`]]) {
+        const td = document.createElement("td");
+        td.className = cls;
+        td.textContent = text;
+        tr.append(td);
+      }
+      table.append(tr);
+    });
+    $("board").classList.toggle("hidden", rows.length === 0);
+  } catch (e) {
+    console.error("Ranking could not be loaded", e);
+  }
+}
+
+function nextRound() {
+  if (index >= rounds.length) return finish();
+  const { file, answer } = rounds[index];
+  $("progress").textContent = `Photo ${index + 1} of ${rounds.length}`;
+  $("running").textContent = `${score} right`;
+  $("photo").src = `photos/${file}`;
+  const options = shuffle([answer, ...shuffle(people.filter(p => p !== answer)).slice(0, OPTION_COUNT - 1)]);
+  $("options").replaceChildren(...options.map(name => {
+    const b = document.createElement("button");
+    b.textContent = name;
+    b.onclick = () => pick(b, name === answer, answer);
+    return b;
+  }));
+}
+
+function pick(button, correct, answer) {
+  for (const b of $("options").children) {
+    b.disabled = true;
+    if (b.textContent === answer) b.classList.add("right");
+  }
+  if (correct) score++; else button.classList.add("wrong");
+  index++;
+  setTimeout(nextRound, correct ? 700 : 1600);
+}
+
+async function finish() {
+  const seconds = Math.round((Date.now() - startedAt) / 1000);
+  const firstRun = !store.get(PLAYED_KEY);
+  $("endTitle").textContent = score === rounds.length ? "Perfect!" : score >= rounds.length / 2 ? "Not bad" : "Do you even know us?";
+  $("endScore").textContent = `${score} / ${rounds.length}`;
+  $("endNote").textContent = `${seconds} seconds.` + (firstRun ? "" : " Practice run, not counted in the ranking.");
+  show("end");
+  if (firstRun) {
+    store.set(PLAYED_KEY, "1");
+    if (hasBoard) {
+      try {
+        await api("scores", { method: "POST", headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ name: player, score, total: rounds.length, seconds }) });
+      } catch (e) {
+        $("endNote").textContent += " Your score could not be saved to the ranking.";
+        console.error(e);
+      }
+    }
+  }
+  loadBoard();
+}
+
+function start() {
+  player = $("name").value.trim();
+  if (!player) { $("name").focus(); return; }
+  rounds = shuffle(rounds);
+  index = 0; score = 0; startedAt = Date.now();
+  show("round");
+  $("board").classList.add("hidden");
+  nextRound();
+}
+
+async function init() {
+  const [p, answers] = await Promise.all([
+    fetch("data/people.json").then(r => r.json()),
+    fetch("data/answers.json").then(r => r.json()),
+  ]);
+  people = p;
+  rounds = Object.entries(answers)
+    .filter(([, name]) => people.includes(name))
+    .map(([file, answer]) => ({ file, answer }));
+  if (rounds.length === 0) {
+    $("go").disabled = true;
+    $("startNote").textContent = "No photos are matched to a person yet.";
+  } else if (store.get(PLAYED_KEY)) {
+    $("startNote").textContent = "You already played on this device. This run is practice only.";
+  }
+  $("go").onclick = start;
+  $("again").onclick = () => show("start");
+  $("name").addEventListener("keydown", e => { if (e.key === "Enter") start(); });
+  loadBoard();
+}
+init();
+</script>
+</body>
+</html>
