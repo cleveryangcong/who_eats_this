@@ -90,7 +90,7 @@ ROUNDS = [
          answer="A beer", solution="A beer. At 6 am. Then bed.", boxes=[(0.21, 0.42, 0.42, 0.86)],
          decoys=["Orange juice, like an adult", "A coffee to start the day", "A glass of milk"]),
     dict(file="five_glasses.jpg", kind="who", make="plain", reveal="five_glasses_after.jpg",
-         question="Who are these beautiful five apes waiting for?", solution="They are waiting for {person}."),
+         question="Who are these five beautiful Aperols waiting for?", solution="They are waiting for {person}."),
     dict(file="tv_before.jpg", kind="who", make="plain", reveal="tv_after.jpg",
          question="Who is waiting behind this TV?", solution="It is {person}."),
     dict(file="burger_king.jpg", kind="who", make="blur",
